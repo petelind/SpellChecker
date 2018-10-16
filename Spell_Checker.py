@@ -1,10 +1,12 @@
+from copy import copy
+from curses.ascii import isupper
 from re import findall, match, search  # we will use regexp to parse words out of book fed to us
 from collections import Counter  # this class implements what we need - dict with the words & frequencies
 from argparse import ArgumentParser
 
-
 # Thats a global which will contain word / frequency table we gonna use for identifying most probable word
 vocabulary = Counter()
+
 
 def build_vocabulary(file_name):
     """
@@ -30,6 +32,7 @@ def build_vocabulary(file_name):
             return counter
     except IOError:
         print("[ ERROR ] Cannot read from " + file_name)
+
 
 # Ok, how do we get correction? We would get correction as most probable candidate from the list
 # of all possible word on the edit distance 1, 2, or the same word if nothing else matched...
@@ -113,6 +116,7 @@ def produce_splits(word):
     return [(word[:i], word[i:])
             for i in range(len(word) + 1)]
 
+
 def edits1(word):
     pairs = produce_splits(word)
     deletes = [a + b[1:] for (a, b) in pairs if b]
@@ -127,6 +131,49 @@ def edits2(word):
     Recursive call of edits1 to produce edits who are 2 edits away.
     """
     return (e2 for e1 in edits1(word) for e2 in edits1(e1))
+
+
+def store_register(word):
+    """
+    For a given word returns a list of 0 and 1 where 1 represents capital letter, and 0 is lowercase
+    :param word: word to process into 0 and 1
+    :return: list of 0 and 1 with the length of the word
+    """
+    index = []
+    char_array = list(word)
+    for each_char in char_array:
+        if isupper(each_char):
+            index.append(True)
+        else:
+            index.append(False)
+    return index
+
+
+def restore_register(word, index):
+    """
+    Restores register according to the given index
+    :param word: all-lowercase word to restore cases from propose_correction()
+    :param index: list of True/False for each of letter in word
+    :return: word with cases restored
+    """
+    if (len(word)) > len(index):
+        zeros_to_add = len(word) - len(index)
+        for i in range(0, zeros_to_add):
+            index.append(0)
+
+
+    if (len(index)) > len(word):
+        index = index[0:len(word)]
+
+    char_array = list(word)
+    restored_word = ''
+    for i in range(0, len(index)):
+        if index[i]:
+            restored_word += char_array[i].upper()
+        else:
+            restored_word += char_array[i]
+    return restored_word
+
 
 if __name__ == '__main__':
     try:
@@ -147,16 +194,19 @@ if __name__ == '__main__':
             print('[ INFO ] Finished parsing ' + args.v +
                   ', extracted ' + str(vocabulary.__len__()) + ' words and their frequencies.\n')
 
-        corrected_words = []
+        corrected_lines = []
         for line in source_file.readlines():
-            clean_line = line.strip("\r\n").lower()
-            corrected_word = propose_correction(clean_line).pop() # assuming first one is most probable one
-            corrected_words.append(corrected_word + '\n')
+            corrected_line = copy(line)
+            for word in findall(r'\w+', line):
+                uppercase_index = store_register(word)
+                corrected_word = propose_correction(word).pop()
+                corrected_line = corrected_line.replace(word, restore_register(corrected_word, uppercase_index))
+            corrected_lines.append(corrected_line)
             if args.l:
-                print('[ INFO ] Word ' + clean_line + ' turns into ' + corrected_word)
+                print('[ INFO ] Line ' + line + ' turns into ' + corrected_line)
 
         # ok, now lets flush the list we created into the file...
-        destination_file.writelines(corrected_words)
+        destination_file.writelines(corrected_lines)
 
     except Exception as e:
         print("[ ERROR ] Cannot spellcheck with parameters you supplied. Exception information as follows:")
